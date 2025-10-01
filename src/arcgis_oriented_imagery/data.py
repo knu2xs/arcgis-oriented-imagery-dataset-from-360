@@ -218,6 +218,16 @@ def process_camera_info_table(
     """
     Process data defined in a camera info table CSV file. This includes renaming columns based on a provided mapping, and creating an output
     oriented imagery dataset.
+
+    Args:
+        camera_info_table: The path to the CSV table containing camera information.
+        working_directory: The directory where intermediate and output files will be stored.
+        camera_info_field_map: A dictionary mapping the expected field names to the actual field names in the camera info table.
+        output_dataset: Optional full path to the output Oriented Imagery Dataset. If not provided, a default path will be created
+            in the working directory based on the input camera info table name.
+
+    Returns:
+        The full path to the created Oriented Imagery Dataset.
     """
     # ensure paths are Path objects
     camera_info_table = (
