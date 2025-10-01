@@ -2,9 +2,9 @@ import logging
 from pathlib import Path
 from typing import Union, Optional
 
-from .main import has_arcpy
+from .utils.main import has_arcpy
 
-__all__ = ["configure_logging", "format_pandas_for_logging"]
+__all__ = ["get_logger", "format_pandas_for_logging"]
 
 
 class ArcpyHandler(logging.Handler):
@@ -70,8 +70,9 @@ class ArcpyHandler(logging.Handler):
 
 
 # setup logging
-def configure_logging(
+def get_logger(
     level: Optional[Union[str, int]] = "INFO",
+    logger_name: Optional[str] = None,
     logfile_path: Union[Path, str] = None,
     propagate: bool = False,
 ) -> logging.Logger:
@@ -92,16 +93,18 @@ def configure_logging(
 
     Args:
         level: Logging level to use. Default is `'INFO'`.
+        logger_name: Name of the logger to get. If `None`, the root logger is used.
         logfile_path: Where to save the logfile if file output is desired.
+        propagate: Whether to propagate logging messages up to the root logger. Default is `False`.
 
     ``` python
     # only output to console and potentially Pro if ArcPy is available
-    configure_logging('DEBUG')
-    logging.debug('nauseatingly detailed debugging message')
-    logging.info('something actually useful to know')
-    logging.warning('The sky may be falling')
-    logging.error('The sky is falling.)
-    logging.critical('The sky appears to be falling because a giant meteor is colliding with the earth.')
+    logger = get_logger('DEBUG')
+    logger.debug('nauseatingly detailed debugging message')
+    logger.info('something actually useful to know')
+    logger.warning('The sky may be falling')
+    logger.error('The sky is falling.')
+    logger.critical('The sky appears to be falling because a giant meteor is colliding with the earth.')
     ```
 
     """
@@ -123,19 +126,22 @@ def configure_logging(
         )
 
     # get default logger and set logging level at the same time
-    logger = logging.getLogger()
+    logger = logging.getLogger(name=logger_name)
     logger.setLevel(level=level)
 
     # clear handlers
     logger.handlers.clear()
 
     # configure formatting
-    log_frmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    log_frmt = logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
 
     # make sure at least a stream handler is present
     ch = logging.StreamHandler()
     ch.setFormatter(log_frmt)
     logger.addHandler(ch)
+
+    # set whether to propagate messages up to the root logger
+    logger.propagate = propagate
 
     # if in an environment with ArcPy, add handler to bubble logging up to ArcGIS through ArcPy
     if has_arcpy:

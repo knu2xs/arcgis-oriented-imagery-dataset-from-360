@@ -1,25 +1,5 @@
-"""
-Licensing
-
-Copyright 2020 Esri
-
-Licensed under the Apache License, Version 2.0 (the "License"); You
-may not use this file except in compliance with the License. You may
-obtain a copy of the License at
-
-http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-implied. See the License for the specific language governing
-permissions and limitations under the License.
-
-A copy of the license is available in the repository's
-LICENSE file.
-"""
 from configparser import ConfigParser
-import logging
+from datetime import datetime
 from pathlib import Path
 import importlib.util
 import sys
@@ -47,9 +27,54 @@ import arcgis_oriented_imagery
 config = ConfigParser()
 config.read('config.ini')
 
+# get paths and settings from the config file
+log_dir = config.get('DEFAULT', 'LOG_DIRECTORY')
 log_level = config.get('DEFAULT', 'LOG_LEVEL')
-input_data = dir_prj / config.get('DEFAULT', 'INPUT_DATA')
-output_data = dir_prj / config.get('DEFAULT', 'OUTPUT_DATA')
+s3_bucket = dir_prj / config.get('DEFAULT', 'S3_BUCKET')
+working_directory = Path(config.get('DEFAULT', 'WORKING_DIRECTORY'))
+
+# get a yyyyymmddThhmmss string for timestamping outputs
+timestamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+
+# ensure logging directory exists
+if not log_dir.exists():
+    log_dir.mkdir(parents=True)
 
 # use the log level from the config to set up basic logging
-logging.basicConfig(level=log_level)
+logger = arcgis_oriented_imagery.utils.get_logger(level=log_level, logfile_path=log_dir / f'make_data_{timestamp}.log')
+
+# log the configuration settings being used
+logger.info(f'Log directory: {log_dir}')
+logger.info(f'Working directory: {working_directory}')
+logger.info(f'S3 bucket: {s3_bucket}')
+logger.info(f'Log level: {log_level}')
+
+# if the working directory does not exist, create it
+if not working_directory.exists(): 
+    working_directory.mkdir(parents=True)
+
+# get new or updated CSV files from the S3 bucket
+new_csv_files = arcgis_oriented_imagery.data.get_new_camera_info_tables(
+    s3_bucket_path=s3_bucket,
+    local_working_directory=working_directory
+)
+
+# log the new or updated CSV files found
+if new_csv_files:
+    logger.info(f'New or updated CSV files found: {[str(f) for f in new_csv_files]}')
+else:
+    logger.info('No new or updated CSV files found.')
+
+# process each new or updated CSV file
+new_datasets = []
+for csv_file in new_csv_files:
+    dataset = arcgis_oriented_imagery.data.process_camera_info_table(
+        camera_info_table=csv_file,
+        working_directory=working_directory,
+        # camera_info_field_map=camera_info_field_map
+    )
+    logger.info(f'Created oriented imagery dataset: {dataset}')
+    new_datasets.append(dataset)
+
+if new_datasets:
+    logger.info(f'{len(new_datasets):,} new oriented imagery datasets created: {[str(d) for d in new_datasets]}')
