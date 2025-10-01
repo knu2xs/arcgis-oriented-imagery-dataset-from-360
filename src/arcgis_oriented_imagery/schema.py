@@ -35,7 +35,7 @@ def validate_csv_schema(
     if missing_columns:
         print(f"Missing columns in CSV: {missing_columns}")
         return False
-    
+
     if fail_if_extra:
         extra_columns = [col for col in csv_columns if col not in required_columns]
         if extra_columns:
@@ -43,8 +43,11 @@ def validate_csv_schema(
 
     return True
 
+
 def rename_dataframe_columns(
-    input_data: pd.DataFrame, column_mapping: dict[str, str], warn_if_extra: Optional[bool] = True
+    input_data: pd.DataFrame,
+    column_mapping: dict[str, str],
+    warn_if_extra: Optional[bool] = True,
 ) -> Path:
     """
     Rename columns in a Pandas DataFrame based on the provided mapping.
@@ -58,7 +61,9 @@ def rename_dataframe_columns(
         Pandas DataFrame with renamed columns.
     """
     # see and notify if there are any extra columns in the input data
-    extra_columns = [col for col in input_data.columns if col not in column_mapping.keys()]
+    extra_columns = [
+        col for col in input_data.columns if col not in column_mapping.keys()
+    ]
     if warn_if_extra and extra_columns:
         logger.warning(f"Extra columns detected: {extra_columns}")
 
@@ -92,8 +97,14 @@ def rename_csv_columns(
         warn_if_extra: Whether to log a warning if extra columns are found in the input data.
     """
     # ensure input paths are Path objects
-    input_csv_path = Path(input_csv_path) if not isinstance(input_csv_path, Path) else input_csv_path
-    output_csv_path = Path(output_csv_path) if not isinstance(output_csv_path, Path) else output_csv_path
+    input_csv_path = (
+        Path(input_csv_path) if not isinstance(input_csv_path, Path) else input_csv_path
+    )
+    output_csv_path = (
+        Path(output_csv_path)
+        if not isinstance(output_csv_path, Path)
+        else output_csv_path
+    )
 
     # ensure input CSV exists
     if not input_csv_path.exists():

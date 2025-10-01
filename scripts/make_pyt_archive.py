@@ -42,7 +42,7 @@ def get_package_requirements(package_name: str) -> list[str]:
     dep_lst = importlib.metadata.requires(package_name)
 
     # use regex to extract just the package name
-    mtch_lst = [re.match(r'~?([\d\w_-]*)[<>]?=?(\d*\.?)?', dep) for dep in dep_lst]
+    mtch_lst = [re.match(r"~?([\d\w_-]*)[<>]?=?(\d*\.?)?", dep) for dep in dep_lst]
 
     # only keep requirements able to be matched
     req_lst = [mtch.group(1) for mtch in mtch_lst if mtch is not None]
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     zip_pth = dir_prj / f"{dir_prj.stem}.zip"
 
     # list of requirements from the package definition
-    req_lst = get_package_requirements('arcgis_oriented_imagery')
+    req_lst = get_package_requirements("arcgis_oriented_imagery")
 
     # create the zipfile
     with zipfile.ZipFile(zip_pth, "w", zipfile.ZIP_DEFLATED) as zip:
