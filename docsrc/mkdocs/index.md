@@ -1,7 +1,7 @@
 ---
 title: Home
 ---
-# ArcGIS Oriented Imagery Dataset from 360 Imagery 0.1.0.dev0 Documentation
+# ArcGIS Oriented Imagery Dataset from 360 Imagery 0.1.0.dev1 Documentation
 
 This is the documentation for ArcGIS Oriented Imagery Dataset from 360 Imagery. All the Markdown (`md`) files in
 `./docsrc/mkdocs` become the documentation pages.
