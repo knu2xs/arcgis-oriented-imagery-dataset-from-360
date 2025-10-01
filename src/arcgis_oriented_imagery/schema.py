@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from utils import get_logger
-from utils.data import create_feature_dataset
+from ._logging_utils import get_logger
 
 __all__ = ["validate_csv_schema", "rename_columns", "rename_csv_columns"]
 

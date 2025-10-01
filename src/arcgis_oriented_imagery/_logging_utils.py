@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Union, Optional
 
-from .utils.main import has_arcpy
+from . import has_arcpy
 
 __all__ = ["get_logger", "format_pandas_for_logging"]
 
