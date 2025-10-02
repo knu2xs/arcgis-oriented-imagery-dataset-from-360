@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arcgis-oriented-imagery-dataset-from-360"
-version = "0.1.0.dev2"
+version = "0.1.0.dev3"
 authors = [
   { name="Joel McCune (https://github.com/knu2xs)"},
 ]
