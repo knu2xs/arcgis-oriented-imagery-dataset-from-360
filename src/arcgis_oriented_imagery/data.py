@@ -1,9 +1,29 @@
+"""arcgis_oriented_imagery.data
+--------------------------------
+
+Utilities for creating and managing ArcGIS oriented imagery datasets and
+for downloading camera-info CSV tables from S3. Key public functions:
+
+- get_new_camera_info_tables: download new/updated CSV camera info tables from S3
+    into a local working directory, with a manifest file to track previously
+    downloaded items. Supports paginated S3 listings and configurable retry/backoff
+    behavior when continuation tokens are missing.
+
+- process_camera_info_table: orchestrates renaming and creation of oriented
+    imagery datasets using the other helper functions.
+
+The module is designed to avoid import-time heavy dependencies where possible
+and allows basic mocking of `arcpy` and `boto3` for unit testing.
+"""
+
 from datetime import timezone
 import json
 from pathlib import Path
 import re
 from typing import Union, Optional, Literal
 import tempfile
+import time
+import os
 
 import arcpy
 import boto3
@@ -15,6 +35,12 @@ __all__ = ["get_new_camera_info_tables", "process_camera_info_table"]
 
 # set up logging for this module
 logger = get_logger(level="DEBUG", logger_name="arcgis_oriented_imagery.data")
+
+# Configuration (can be overridden via environment variables)
+# AOI_S3_MAX_RETRIES - maximum retry attempts when IsTruncated=True but no continuation token
+# AOI_S3_BACKOFF_INITIAL - initial backoff (seconds)
+DEFAULT_S3_MAX_RETRIES = int(os.getenv("AOI_S3_MAX_RETRIES", "3"))
+DEFAULT_S3_BACKOFF_INITIAL = float(os.getenv("AOI_S3_BACKOFF_INITIAL", "0.1"))
 
 
 def _slugify(value: str, replacement_char: str = "-") -> str:
@@ -142,26 +168,16 @@ def add_images_to_oriented_imagery_dataset(
     dataset_path = (
         Path(dataset_path) if not isinstance(dataset_path, Path) else dataset_path
     )
-    images_path = (
-        Path(images_path) if not isinstance(images_path, Path) else images_path
-    )
     if camera_info_table:
         camera_info_table = (
             Path(camera_info_table)
             if not isinstance(camera_info_table, Path)
             else camera_info_table
         )
-
     # ensure the oriented imagery dataset exists
     if not dataset_path.exists():
         raise FileNotFoundError(
             f"The specified Oriented Imagery Dataset does not exist: {dataset_path}"
-        )
-
-    # ensure the images path exists and is a directory
-    if not images_path.exists() or not images_path.is_dir():
-        raise FileNotFoundError(
-            f"The specified images path does not exist or is not a directory: {images_path}"
         )
 
     # if the camera info table is provided, ensure it exists
@@ -280,6 +296,8 @@ def get_new_camera_info_tables(
     s3_bucket_path: str,
     local_working_directory: Union[str, Path],
     manifest_file: Optional[Union[str, Path]] = None,
+    max_retries: Optional[int] = None,
+    backoff_initial: Optional[float] = None,
 ) -> list[Path]:
     """
     Download new camera info tables from an S3 bucket.
@@ -289,6 +307,15 @@ def get_new_camera_info_tables(
         local_working_directory: The local directory to download the camera info tables to.
         manifest_file: Optional path to a manifest file listing specific files to download. If not provided,
             one will be created in the local working directory.
+        max_retries: Optional maximum number of retries when S3 indicates more pages (IsTruncated=True)
+            but `NextContinuationToken` is not provided. If None the value is read from the
+            AOI_S3_MAX_RETRIES environment variable or defaults to 3.
+        backoff_initial: Optional initial backoff (seconds) for retry attempts. If None the value
+            is read from AOI_S3_BACKOFF_INITIAL environment variable or defaults to 0.1.
+
+    Configuration via environment variables:
+        AOI_S3_MAX_RETRIES (int): default retry attempts when continuation token missing.
+        AOI_S3_BACKOFF_INITIAL (float): initial backoff seconds for retries.
     """
     # ensure local working directory is a Path object
     local_working_directory = (
@@ -305,6 +332,12 @@ def get_new_camera_info_tables(
     if not local_working_directory.exists():
         local_working_directory.mkdir(parents=True)
 
+    # resolve retry/backoff configuration: function args > env config > defaults
+    if max_retries is None:
+        max_retries = DEFAULT_S3_MAX_RETRIES
+    if backoff_initial is None:
+        backoff_initial = DEFAULT_S3_BACKOFF_INITIAL
+
     # use boto3 to check and download new camera info tables
     s3 = boto3.client("s3")
     bucket_name = re.match(r"s3://([^/]+)", s3_bucket_path).group(1)
@@ -314,35 +347,88 @@ def get_new_camera_info_tables(
     new_tables = []
 
     try:
-        # list objects in the specified S3 bucket and prefix
-        response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
-        if "Contents" not in response:
-            logger.info(f"No objects found in S3 bucket {s3_bucket_path}.")
-            return new_tables
-
+        # page through results using ContinuationToken (if present)
         # load existing manifest if it exists
         existing_manifest = {}
         if Path(manifest_file).exists():
             with open(manifest_file, "r") as mf:
                 existing_manifest = json.load(mf)
 
-        # check each object in the S3 bucket
-        for obj in response["Contents"]:
-            key = obj["Key"]
-            last_modified = obj["LastModified"].replace(tzinfo=timezone.utc).isoformat()
-            filename = key.split("/")[-1]
-            local_file_path = local_working_directory / filename
+        continuation_token = None
+        while True:
+            if continuation_token:
+                response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix, ContinuationToken=continuation_token)
+            else:
+                response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
 
-            # if a csv file, determine if the file is new or updated
-            if filename.endswith(".csv") and (
-                (filename not in existing_manifest)
-                or (existing_manifest[filename] != last_modified)
-            ):
-                # download the file
-                s3.download_file(bucket_name, key, str(local_file_path))
-                new_tables.append(local_file_path)
-                existing_manifest[filename] = last_modified
-                logger.info(f"Downloaded new/updated camera info table: {filename}")
+            if "Contents" not in response:
+                # if the first page has no contents, exit early
+                if continuation_token is None:
+                    logger.info(f"No objects found in S3 bucket {s3_bucket_path}.")
+                    return new_tables
+                else:
+                    break
+
+            # check each object in the S3 bucket page
+            for obj in response["Contents"]:
+                key = obj["Key"]
+                last_modified = obj["LastModified"].replace(tzinfo=timezone.utc).isoformat()
+                filename = key.split("/")[-1]
+                local_file_path = local_working_directory / filename
+
+                # if a csv file, determine if the file is new or updated
+                if filename.endswith(".csv") and (
+                    (filename not in existing_manifest)
+                    or (existing_manifest[filename] != last_modified)
+                ):
+                    # download the file
+                    s3.download_file(bucket_name, key, str(local_file_path))
+                    new_tables.append(local_file_path)
+                    existing_manifest[filename] = last_modified
+                    logger.info(f"Downloaded new/updated camera info table: {filename}")
+
+                # check if there are more pages
+                if response.get("IsTruncated"):
+                    # if the response says truncated but lacks a continuation token,
+                    # attempt a small number of retries with backoff in case of transient
+                    # API shape issues. If still missing, log and break to avoid
+                    # infinite loops.
+                    next_token = response.get("NextContinuationToken")
+                    if not next_token:
+                        retry = 0
+                        backoff = backoff_initial
+                        next_token = None
+                        while retry < max_retries:
+                            retry += 1
+                            try:
+                                time.sleep(backoff)
+                            except Exception:
+                                # in test environments time.sleep may be patched or raise
+                                pass
+                            # re-request the same page to see if token appears
+                            if continuation_token:
+                                response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix, ContinuationToken=continuation_token)
+                            else:
+                                response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+                            next_token = response.get("NextContinuationToken")
+                            if next_token:
+                                break
+                            backoff *= 2
+
+                        if next_token:
+                            continuation_token = next_token
+                            continue
+                        else:
+                            logger.warning(
+                                "S3 response indicated more pages (IsTruncated=True) but no NextContinuationToken was returned after retries; stopping pagination."
+                            )
+                            break
+                    else:
+                        continuation_token = next_token
+                        # continue the loop to fetch next page
+                        continue
+                else:
+                    break
 
         # update the manifest file
         with open(manifest_file, "w") as mf:

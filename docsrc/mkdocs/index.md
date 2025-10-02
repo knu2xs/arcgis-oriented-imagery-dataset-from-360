@@ -52,8 +52,10 @@ Set the values in the configuration file located at `./scripts/config.ini`.
 Run the command to scan for new `.csv` files in S3, and create an Oriented Imagery Dataset in
 the working directory for each new file discovered in S3.
 
-This command activates the Python environment created above, and runs the `./src/make_data.py` script.
-If you need to customize the workflow, you can edit the script directly.
+!!! note
+
+    This command activates the Python environment created above, and runs the `./src/make_data.py` script.
+    If you need to customize the workflow, you can edit the script directly.
 
 ## Python API
 

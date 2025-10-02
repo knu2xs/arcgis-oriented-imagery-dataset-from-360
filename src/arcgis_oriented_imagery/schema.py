@@ -1,3 +1,17 @@
+"""arcgis_oriented_imagery.schema
+---------------------------------
+
+Helpers for validating and renaming CSV/Tabular schemas used by the oriented
+imagery pipeline. Main public functions:
+
+- validate_csv_schema: check that required columns are present in a CSV file.
+- rename_dataframe_columns: rename columns in a pandas DataFrame using a mapping.
+- rename_csv_columns: read a CSV, rename columns, and write the result.
+
+The module uses local pandas imports and a logger to remain testable in
+environments without heavy GIS dependencies.
+"""
+
 import csv
 from typing import Union, Optional
 from pathlib import Path
